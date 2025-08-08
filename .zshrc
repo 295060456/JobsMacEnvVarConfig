@@ -153,6 +153,8 @@ fi
 update() {
     brew update && brew upgrade && brew cleanup && brew doctor && brew -v # Homebrew
     dart pub global activate fvm                                          # fvm
+    gem update && gem clean
+    pod repo update --verbose
 }
 
 # ================================== ✅ Flutter 命令重载（优先 FVM） ====================================
