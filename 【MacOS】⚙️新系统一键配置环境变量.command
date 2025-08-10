@@ -1,140 +1,188 @@
 #!/bin/zsh
+# ✅ 脚本功能
+# 仅对你一次性拖入的文件进行处理：按文件名匹配固定映射 → 写入固定系统/用户路径（备份 & 提权）。
+# 未拖入/不匹配的文件一律忽略，不计失败。
 
-# ==========🧾 脚本说明 ==========
-echo ""
-echo "🛠️ 环境变量同步工具（用户级 + 系统级）"
-echo "1️⃣ 自动安装并更新 Homebrew、fzf"
-echo "2️⃣ 使用 fzf 多选配置文件（顺序保持 + 空行分组）"
-echo "3️⃣ 自动补齐模板：用户模板写注释，系统模板为空"
-echo "4️⃣ 同步逻辑："
-echo "    ✅ 用户文件：本地 → 覆盖用户路径"
-echo "    ✅ 系统文件："
-echo "       • 模板为空 → 系统文件 → 反向备份到本地模板"
-echo "       • 模板非空 → 本地模板 → 覆盖系统路径（需 sudo + 自动备份）"
-echo "5️⃣ 所有操作后自动 open 文件"
-echo ""
-read "?👉 请按回车继续，或 Ctrl+C 退出..."
+# ✅ 全局变量
+typeset -gi OK_COUNT=0
+typeset -gi FAIL_COUNT=0
+typeset -gi SKIP_COUNT=0
+typeset -ga INPUTS=()   # 仅保存“存在且文件名在映射表中的文件”
 
-# ==========📁 路径定义==========
-SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
-ROOT_ENV_FILE="$SCRIPT_DIR/env_config_root.txt"
+# ✅ 彩色输出函数
+SCRIPT_BASENAME=$(basename "$0" | sed 's/\.[^.]*$//')   # 当前脚本名（去掉扩展名）
+LOG_FILE="/tmp/${SCRIPT_BASENAME}.log"                  # 设置对应的日志文件路径
 
-# ==========🔍 安装 Homebrew + fzf ==========
-if ! command -v brew >/dev/null 2>&1; then
-  echo "📦 未检测到 Homebrew，正在安装..."
-  /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"
-  echo "✅ Homebrew 安装完成，请重新运行脚本以生效路径。"
-  exit 0
-else
-  echo "✅ 检测到 Homebrew，执行升级..."
-  brew update && brew upgrade && brew cleanup
-fi
+log()            { echo -e "$1" | tee -a "$LOG_FILE"; }
+color_echo()     { log "\033[1;32m$1\033[0m"; }         # ✅ 正常绿色输出
+info_echo()      { log "\033[1;34mℹ $1\033[0m"; }       # ℹ 信息
+success_echo()   { log "\033[1;32m✔ $1\033[0m"; }       # ✔ 成功
+warn_echo()      { log "\033[1;33m⚠ $1\033[0m"; }       # ⚠ 警告
+warm_echo()      { log "\033[1;33m$1\033[0m"; }         # 🟡 温馨提示（无图标）
+note_echo()      { log "\033[1;35m➤ $1\033[0m"; }       # ➤ 说明
+error_echo()     { log "\033[1;31m✖ $1\033[0m"; }       # ✖ 错误
+err_echo()       { log "\033[1;31m$1\033[0m"; }         # 🔴 错误纯文本
+debug_echo()     { log "\033[1;35m🐞 $1\033[0m"; }      # 🐞 调试
+highlight_echo() { log "\033[1;36m🔹 $1\033[0m"; }      # 🔹 高亮
+gray_echo()      { log "\033[0;90m$1\033[0m"; }         # ⚫ 次要信息
+bold_echo()      { log "\033[1m$1\033[0m"; }            # 📝 加粗
+underline_echo() { log "\033[4m$1\033[0m"; }            # 🔗 下划线
 
-if ! command -v fzf >/dev/null 2>&1; then
-  echo "📦 未检测到 fzf，正在安装..."
-  brew install fzf
-else
-  echo "✅ 检测到 fzf，尝试升级..."
-  brew upgrade fzf
-fi
-
-# ==========📋 配置文件清单（原始顺序 + 空行分组）==========
-CONFIG_KEYS=(
-  "用户 Bash 登录配置 ~/.bash_profile"
-  "用户 Bash 交互配置 ~/.bashrc"
-  "Zsh 配置 ~/.zshrc"
-  "Zsh 登录配置 ~/.zprofile"
-  "Zsh 登录后配置 ~/.zlogin"
-  "Zsh 通用配置 ~/.zshenv"
-  "Zsh 登出后配置 ~/.zlogout"
-  ""
-  "系统 Bash 登录配置 /etc/profile"
-  "系统 Bash 交互配置 /etc/bashrc"
-  "系统 Zsh 配置 /etc/zshrc"
+# ✅ 文件名 → 目标路径映射
+typeset -A FILE_MAP=(
+  [".bash_profile"]="$HOME/.bash_profile"
+  [".bashrc"]="$HOME/.bashrc"
+  [".zshrc"]="$HOME/.zshrc"
+  [".zprofile"]="$HOME/.zprofile"
+  [".zlogin"]="$HOME/.zlogin"
+  [".zshenv"]="$HOME/.zshenv"
+  [".zlogout"]="$HOME/.zlogout"
+  ["profile"]="/etc/profile"
+  ["bashrc"]="/etc/bashrc"
+  ["zshrc"]="/etc/zshrc"
 )
 
-typeset -A CONFIG_MAP
-CONFIG_MAP=(
-  ["用户 Bash 登录配置 ~/.bash_profile"]="$HOME/.bash_profile"
-  ["用户 Bash 交互配置 ~/.bashrc"]="$HOME/.bashrc"
-  ["Zsh 配置 ~/.zshrc"]="$HOME/.zshrc"
-  ["Zsh 登录配置 ~/.zprofile"]="$HOME/.zprofile"
-  ["Zsh 登录后配置 ~/.zlogin"]="$HOME/.zlogin"
-  ["Zsh 通用配置 ~/.zshenv"]="$HOME/.zshenv"
-  ["Zsh 登出后配置 ~/.zlogout"]="$HOME/.zlogout"
+# ✅ 自述（等待回车）
+show_intro() {
+  title_echo "写入 Shell 配置到系统默认位置"
+  note_echo  "• 仅处理你拖入的文件；按文件名匹配映射，其余忽略（不计失败）"
+  note_echo  "• 自动备份：*.bak.YYYYmmdd_HHMMSS"
+  note_echo  "• 系统级路径自动提权写入（/etc/*）"
+  note_echo  "• 支持一次拖入多个文件（空格分隔）"
+  echo
+  read -r "?👉 按回车键开始，或 Ctrl+C 取消..."
+}
 
-  ["系统 Bash 登录配置 /etc/profile"]="/etc/profile"
-  ["系统 Bash 交互配置 /etc/bashrc"]="/etc/bashrc"
-  ["系统 Zsh 配置 /etc/zshrc"]="/etc/zshrc"
-)
+# ✅ 路径规范化（去转义/去引号/展开 ~）
+normalize_path() {
+  local raw="$1"
+  local unq="${(Q)raw}"   # 去掉反斜杠和引号
+  local exp="${~unq}"     # 展开 ~
+  printf "%s" "$exp"
+}
 
-# ==========📂 自动补齐模板文件 ==========
-echo "\n📂 检查模板文件是否存在..."
-
-for key in "${CONFIG_KEYS[@]}"; do
-  [[ -z "$key" ]] && continue
-  target_path="${CONFIG_MAP[$key]}"
-  file_name="$(basename "$target_path")"
-  local_file="$SCRIPT_DIR/$file_name"
-
-  if [[ ! -f "$local_file" ]]; then
-    echo "⚠️ 缺失模板：$file_name → 自动创建..."
-    if [[ "$target_path" == /etc/* ]]; then
-      touch "$local_file"  # 系统模板留空
+# ✅ 备份
+backup_if_exists() {
+  local dest="$1"
+  if [[ -e "$dest" ]]; then
+    local ts bak
+    ts=$(date +"%Y%m%d_%H%M%S")
+    bak="${dest}.bak.${ts}"
+    if cp -p "$dest" "$bak" 2>/dev/null || sudo cp -p "$dest" "$bak" 2>/dev/null; then
+      note_echo "已备份：$dest → $bak"
     else
-      echo "# ⚠️ 自动创建的模板文件，请根据需要填写内容" > "$local_file"
+      warn_echo "无法备份：$dest"
     fi
-  else
-    echo "✅ 模板已存在：$file_name"
   fi
-done
+}
 
-# ==========📋 使用 fzf 选择配置文件 ==========
-SELECTED_KEYS=$(printf '%s\n' "${CONFIG_KEYS[@]}" | fzf --multi --header="🔧 请选择要同步的配置文件：" --prompt="👉 ")
+# ✅ 确保目录
+ensure_parent_dir() {
+  local dest="$1" parent
+  parent="$(dirname "$dest")"
+  [[ -d "$parent" ]] || mkdir -p "$parent" 2>/dev/null || sudo mkdir -p "$parent" 2>/dev/null
+}
 
-if [[ -z "$SELECTED_KEYS" ]]; then
-  echo "❌ 未选择任何配置文件，已退出。"
-  exit 0
-fi
+# ✅ 写入（含提权兜底）
+write_with_privilege() {
+  local src="$1" dest="$2"
+  cp -f "$src" "$dest" 2>/dev/null || \
+  sudo cp -f "$src" "$dest" 2>/dev/null || \
+  sudo sh -c "cat \"$src\" > \"$dest\"" 2>/dev/null
+}
 
-# ==========📥 执行同步逻辑 ==========
-for key in ${(f)SELECTED_KEYS}; do
-  [[ -z "$key" ]] && continue
+# ✅ 写入单个匹配文件
+install_one() {
+  local src="$1"
+  local base dest
+  base="$(basename "$src")"
+  dest="${FILE_MAP[$base]}"
+  [[ -n "$dest" ]] || return 0  # 理论上不会走到：collect_inputs 已过滤未映射项
 
-  TARGET_PATH="${CONFIG_MAP[$key]}"
-  FILE_NAME="$(basename "$TARGET_PATH")"
-  LOCAL_FILE="$SCRIPT_DIR/$FILE_NAME"
+  info_echo "准备写入：$base → $dest"
+  ensure_parent_dir "$dest"
+  backup_if_exists "$dest"
 
-  if [[ "$TARGET_PATH" == /etc/* && ! -s "$LOCAL_FILE" ]]; then
-    echo "\n🔄 反向备份（系统模板为空）：$TARGET_PATH → $LOCAL_FILE"
+  if write_with_privilege "$src" "$dest"; then
+    success_echo "写入成功：$dest"
+    ((OK_COUNT++))
   else
-    echo "\n🔧 正在同步：$LOCAL_FILE → $TARGET_PATH"
+    error_echo "写入失败：$dest"
+    ((FAIL_COUNT++))
+  fi
+}
+
+# ✅ 交互式收集（直到得到 ≥1 个“存在且映射内”的文件）
+read_inputs_interactively_once() {
+  INPUTS=()    # 清空
+  note_echo "将文件一次性拖入此窗口（可多个，空格分隔）；Ctrl+C 退出。"
+  local line; read -r "?👉 等你拖入: " line || return 1
+  [[ -z "$line" ]] && return 1
+
+  # token 化（zsh：保留 Finder 反斜杠转义）
+  local -a tokens; tokens=(${=line})
+  local t norm base
+  for t in "${tokens[@]}"; do
+    norm="$(normalize_path "$t")"
+    [[ -f "$norm" ]] || continue                 # 仅要“真实存在的常规文件”
+    base="$(basename "$norm")"
+    [[ -n "${FILE_MAP[$base]}" ]] || { ((SKIP_COUNT++)); continue; }   # 未映射：忽略
+    INPUTS+=("$norm")
+  done
+
+  (( ${#INPUTS[@]} > 0 )) || return 1
+  return 0
+}
+
+# ✅ 收集输入（命令行或交互；只保留“存在且映射内”的文件）
+collect_inputs() {
+  INPUTS=()
+  SKIP_COUNT=0
+
+  if (( $# > 0 )); then
+    local a norm base
+    for a in "$@"; do
+      norm="$(normalize_path "$a")"
+      [[ -f "$norm" ]] || continue
+      base="$(basename "$norm")"
+      [[ -n "${FILE_MAP[$base]}" ]] || { ((SKIP_COUNT++)); continue; }
+      INPUTS+=("$norm")
+    done
+    (( ${#INPUTS[@]} > 0 )) && return 0
+    warn_echo "命令行参数中没有任何可处理的文件，将进入交互。"
   fi
 
-  if [[ "$TARGET_PATH" == /etc/* ]]; then
-    if [[ ! -s "$LOCAL_FILE" ]]; then
-      echo "🛑 本地模板为空 → 为保护系统文件，执行反向备份..."
-      cp -f "$TARGET_PATH" "$LOCAL_FILE"
-      echo "✅ 已将系统文件备份为本地模板：$LOCAL_FILE"
-      open "$LOCAL_FILE"
-      continue
-    fi
+  # 交互循环直到拿到 ≥1 个“存在且映射内”的文件
+  while ! read_inputs_interactively_once; do
+    warn_echo "没有可处理的文件，请重新拖入（或 Ctrl+C 退出）。"
+  done
+}
 
-    if [[ -f "$TARGET_PATH" ]]; then
-      BACKUP="$TARGET_PATH.backup.$(date +%Y%m%d%H%M%S)"
-      sudo cp "$TARGET_PATH" "$BACKUP"
-      echo "📦 系统原文件已备份：$BACKUP"
-    fi
+# ✅ 批量处理（只处理 INPUTS）
+process_all() {
+  local it
+  for it in "${INPUTS[@]}"; do
+    install_one "$it"
+  done
+}
 
-    sudo cp -f "$LOCAL_FILE" "$TARGET_PATH"
-    echo "✅ 已将模板覆盖到系统文件：$TARGET_PATH"
-  else
-    cp -f "$LOCAL_FILE" "$TARGET_PATH"
-    echo "✅ 已将模板覆盖到用户文件：$TARGET_PATH"
-  fi
+# ✅ 汇总（未匹配/无效项仅计入“跳过”，不算失败）
+summarize_result() {
+  [[ $SKIP_COUNT -gt 0 ]] && note_echo "已忽略未匹配/无效条目：$SKIP_COUNT"
+  info_echo "成功: $OK_COUNT，失败: $FAIL_COUNT"
+  (( FAIL_COUNT == 0 )) && success_echo "全部完成 ✅  （日志：$LOG_FILE）" || warn_echo "部分失败，请检查日志：$LOG_FILE"
+}
 
-  open "$TARGET_PATH"
-done
+# ✅ main
+main() {
+  # 1) 自述 + 等待确认
+  show_intro
+  # 2) 收集输入（命令行或交互；仅保留“存在且映射内”的文件）
+  collect_inputs "$@" || { error_echo "未收到可处理的文件，已取消。"; exit 1; }
+  # 3) 批量处理拖入的文件（仅处理映射内文件名）
+  process_all
+  # 4) 汇总结果（未匹配的文件不计失败）
+  summarize_result
+}
 
-echo "\n🎉 ✅ 所有配置文件同步操作已完成！"
-read "?📦 按回车退出..."
+main "$@"

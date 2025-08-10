@@ -247,12 +247,12 @@ check1() {
 
 clear
 
-# ================================== ✅ 重启终端 ======================================================
+# ================================== ✅ 重启终端 ==============================================
 rb() {
   exec "$SHELL"
 }
 
-# ================================== ✅ 快捷打开系统配置文件 ============================================
+# ================================== ✅ 快捷打开系统配置文件 ====================================
 a(){
   open $HOME/.bash_profile
 }
@@ -264,27 +264,52 @@ b(){
 # ================================== ✅ 快捷打开软件 ============================================
 
 i(){
-  open -a Simulator 
-
+  open -a Simulator
 }
 
-# ================================== ✅ 终端快捷打开项目文件夹 ============================================
-c(){
-  cd /Users/jobs/Documents/Github/flutter_tiyu_app
-
-  rm -f ~/.jenv/shims/.jenv-shim
-  jenv local openjdk64-17.0.16
-  eval "$(jenv init -)"
-  jenv rehash
+# ============== ✅ 终端快捷打开项目文件夹@编辑完后用命令已定义的命令rb重启终端使之生效===================
+check(){
+  # 验证
+  echo ""
+  java -version
+  echo ""
+  echo "JAVA_HOME=$JAVA_HOME"
+  echo ""
 
   fvm use 3.24.5 --force
+  flutter doctor -v
+}
 
-  java --version
-  flutter doctor -v 
+c(){
+  # 锁定项目
+  cd /Users/jobs/Documents/Github/flutter_tiyu_app
+
+  # 删除构建失败的 jenv 中间件
+  rm -f ~/.jenv/shims/.jenv-shim
+
+  # 1、让 jenv 在当前 shell 生效
+  eval "$(jenv init -)"
+
+  # 2、启用 export 插件（自动导出 JAVA_HOME）
+  jenv enable-plugin export
+
+  # 3、让 jenv 识别本机 JDK 17（若已识别可跳过）
+  jenv add "$(/usr/libexec/java_home -v 17)" >/dev/null 2>&1
+
+  # 4、更新 shims（新增 JDK 后建议做一次）
+  jenv rehash
+
+  # 5、在项目内锁定到 JDK 17（JDK 版本号按 jenv versions 里显示来）
+  jenv local openjdk64-17.0.16 # 或者 17.0.16
+
+  # 6、重新加载环境（让 export 插件立刻生效）
+  jenv shell openjdk64-17.0.16
+
+  check
 }
 
 apk(){
-  cd /Users/jobs/Documents/Github/flutter_tiyu_app
+  c
 
   flutter clean
   flutter pub get
@@ -293,7 +318,7 @@ apk(){
 }
 
 ipa(){
-  cd /Users/jobs/Documents/Github/flutter_tiyu_app
+  c
 
   flutter clean
   flutter pub get
