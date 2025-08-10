@@ -107,20 +107,6 @@ source $ZSH/oh-my-zsh.sh
 export PATH="$HOME/.jenv/bin:$PATH"
 eval "$(jenv init -)"
 
-# ================================== ✅ 重启终端 ======================================================
-rb() {
-  exec "$SHELL"
-}
-
-# ================================== ✅ 快捷打开系统配置文件 ============================================
-a(){
-  open $HOME/.bash_profile
-}
-
-b(){
-  open $HOME/.zshrc
-}
-
 # ================================== ✅ 一键重新加载常见配置文件 ========================================
 save() {
   local files=(
@@ -260,4 +246,58 @@ check1() {
 }
 
 clear
+
+# ================================== ✅ 重启终端 ======================================================
+rb() {
+  exec "$SHELL"
+}
+
+# ================================== ✅ 快捷打开系统配置文件 ============================================
+a(){
+  open $HOME/.bash_profile
+}
+
+b(){
+  open $HOME/.zshrc
+}
+
+# ================================== ✅ 快捷打开软件 ============================================
+
+i(){
+  open -a Simulator 
+
+}
+
+# ================================== ✅ 终端快捷打开项目文件夹 ============================================
+c(){
+  cd /Users/jobs/Documents/Github/flutter_tiyu_app
+
+  rm -f ~/.jenv/shims/.jenv-shim
+  jenv local openjdk64-17.0.16
+  eval "$(jenv init -)"
+  jenv rehash
+
+  fvm use 3.24.5 --force
+
+  java --version
+  flutter doctor -v 
+}
+
+apk(){
+  cd /Users/jobs/Documents/Github/flutter_tiyu_app
+
+  flutter clean
+  flutter pub get
+  flutter doctor -v  
+  flutter build apk --release
+}
+
+ipa(){
+  cd /Users/jobs/Documents/Github/flutter_tiyu_app
+
+  flutter clean
+  flutter pub get
+  flutter doctor -v 
+  flutter build ipa --release
+}
 
