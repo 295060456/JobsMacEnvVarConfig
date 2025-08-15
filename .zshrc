@@ -137,6 +137,7 @@ fi
 
 # ================================== ✅ 更新 ==========================================================
 update() {
+    flutter upgrade
     brew update && brew upgrade && brew cleanup && brew doctor && brew -v # Homebrew
     dart pub global activate fvm                                          # fvm
     gem update && gem clean
