@@ -327,3 +327,108 @@ ipa(){
   flutter build ipa --release
 }
 
+# ================================== 万能颜色格式转换器 ==================================
+cor() {
+  # ---------- 基础工具 ----------
+  to_hex() { printf "%02X" "$1"; }
+  alpha_float_to_255() { awk 'BEGIN{v='"$1"'; if(v<0)v=0;if(v>1)v=1; printf("%d",(v*255)+0.5)}'; }
+  alpha_255_to_float() { awk 'BEGIN{printf("%.2f",'"$1"'/255)}'; }
+  sanitize_input() { echo "$1" | tr -d '[:space:]' | tr -d '"' | tr -d "'"; }
+  upper_hex() { echo "$1" | tr '[:lower:]' '[:upper:]'; }
+
+  # ---------- 全局变量 ----------
+  local r g b a_float aa_hex user_input
+
+  # ---------- 解析输入 ----------
+  parse_input() {
+    local raw="$1" input
+    input=$(sanitize_input "$raw")
+
+    # 0xAARRGGBB
+    if [[ "$input" =~ ^0x[0-9a-fA-F]{8}$ ]]; then
+      local hex="${input:2}"; hex=$(upper_hex "$hex")
+      local aa=${hex:0:2} rr=${hex:2:2} gg=${hex:4:2} bb=${hex:6:2}
+      r=$((16#$rr)); g=$((16#$gg)); b=$((16#$bb))
+      aa_hex="$aa"
+      a_float=$(alpha_255_to_float $((16#$aa)))
+      return 0
+    fi
+
+    # #RRGGBB / #RRGGBBAA
+    if [[ "$input" =~ ^#[0-9a-fA-F]{6}([0-9a-fA-F]{2})?$ ]]; then
+      local hex="${input:1}"; hex=$(upper_hex "$hex")
+      local rr=${hex:0:2} gg=${hex:2:2} bb=${hex:4:2}
+      r=$((16#$rr)); g=$((16#$gg)); b=$((16#$bb))
+      if [[ ${#hex} -eq 8 ]]; then
+        aa_hex=${hex:6:2}
+        a_float=$(alpha_255_to_float $((16#$aa_hex)))
+      else
+        aa_hex="FF"
+        a_float="1.00"
+      fi
+      return 0
+    fi
+
+    # rgb(...) / rgba(...)
+    if [[ "$input" =~ ^rgba?\( ]]; then
+      local nums; nums=$(echo "$input" | sed -E 's/rgba?\(|\)//g')
+      IFS=',' read -r R G B A <<<"$nums"
+      r=${R%%.*}; g=${G%%.*}; b=${B%%.*}
+      [[ -z "$A" ]] && A="1"
+      a_float=$(awk 'BEGIN{printf("%.2f",'"$A"')}')
+      local A255; A255=$(alpha_float_to_255 "$a_float")
+      aa_hex=$(to_hex "$A255")
+      return 0
+    fi
+
+    return 1
+  }
+
+  # ---------- 格式化输出 ----------
+  format_and_print_all() {
+    local RR=$(to_hex "$r") GG=$(to_hex "$g") BB=$(to_hex "$b")
+    local AA="$aa_hex"
+    echo
+    echo "输入：$user_input"
+    echo "----------------------------------------"
+    echo "HEX（不透明）:  #${RR}${GG}${BB}"
+    echo "HEX（含透明） :  #${RR}${GG}${BB}${AA}"
+    echo "RGB           :  rgb(${r}, ${g}, ${b})"
+    echo "RGBA          :  rgba(${r}, ${g}, ${b}, $(printf '%.2f' "$a_float"))"
+    echo "0x 格式       :  0x${AA}${RR}${GG}${BB}"
+    echo
+  }
+
+  # ---------- 执行逻辑 ----------
+  if [[ $# -ge 1 ]]; then
+    # 有参数：逐个转换
+    for user_input in "$@"; do
+      if parse_input "$user_input"; then
+        format_and_print_all
+      else
+        echo "❌ 无法识别：$user_input"
+      fi
+    done
+  else
+    # 无参数：交互模式
+    while true; do
+      echo
+      printf "请输入颜色值（q 退出）： "
+      IFS= read -r user_input
+      [[ -z "$user_input" ]] && continue
+      [[ "$user_input" == [Qq] ]] && { echo "✅ 已退出"; break; }
+      if parse_input "$user_input"; then
+        format_and_print_all
+      else
+        echo "❌ 无法识别：$user_input"
+      fi
+    done
+  fi
+}
+
+# ✅ 打开xcode模拟器
+a(){
+  open -a Simulator
+}
+
+
