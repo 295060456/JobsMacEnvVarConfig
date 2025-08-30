@@ -103,11 +103,11 @@ source $ZSH/oh-my-zsh.sh
 # alias zshconfig="mate ~/.zshrc"
 # alias ohmyzsh="mate ~/.oh-my-zsh"
 
-# ================================== ✅ 配置 jenv 路径（必须在函数之前）==================================
+# ✅ 配置 jenv 路径（必须在函数之前）
 export PATH="$HOME/.jenv/bin:$PATH"
 eval "$(jenv init -)"
 
-# ================================== ✅ 一键重新加载常见配置文件 ========================================
+# ✅ 一键重新加载常见配置文件
 save() {
   local files=(
     "$HOME/.bash_profile"
@@ -135,7 +135,7 @@ if [[ -z "$JOBS_ALREADY_RUN" ]]; then
   command -v save &>/dev/null && save
 fi
 
-# ================================== ✅ 更新 ==========================================================
+# ✅ 更新
 update() {
     flutter upgrade
     brew update && brew upgrade && brew cleanup && brew doctor && brew -v # Homebrew
@@ -144,7 +144,7 @@ update() {
     pod repo update --verbose
 }
 
-# ================================== ✅ Flutter 命令重载（优先 FVM） ====================================
+# ✅ Flutter 命令重载（优先 FVM）
 # 功能：
 #   1. 如果项目目录存在 `.fvm/fvm_config.json`，优先使用该项目绑定的 FVM Flutter SDK。
 #   2. 检测 FVM 是否可用（VSCode 内最容易失效的情况）：
@@ -185,7 +185,7 @@ flutter() {
   fi
 }
 
-# ================================== ✅ 修复 fvm 与 Dart SDK 不匹配问题 ==================================
+# ✅ 修复 fvm 与 Dart SDK 不匹配问题
 # 场景：
 #   当执行 flutter / fvm 时出现以下错误：
 #     "Can't load Kernel binary: Invalid kernel binary format version."
@@ -212,7 +212,7 @@ fixfvm() {
   echo "✅ fvm 已重新安装并与当前 Dart SDK 匹配"
 }
 
-# ================================== ✅ 检查 Dart / FVM / Flutter 版本信息 ===========================
+# ✅ 检查 Dart / FVM / Flutter 版本信息
 check1() {
   echo "===================================================================="
   echo " 1️⃣ Dart 位置 & 版本"
@@ -253,7 +253,7 @@ rb() {
   exec "$SHELL"
 }
 
-# ================================== ✅ 快捷打开系统配置文件 ====================================
+# ✅ 快捷打开系统配置文件
 a(){
   open $HOME/.bash_profile
 }
@@ -262,13 +262,12 @@ b(){
   open $HOME/.zshrc
 }
 
-# ================================== ✅ 快捷打开软件 ============================================
-
+# ✅ 快捷打开软件
 i(){
   open -a Simulator
 }
 
-# ============== ✅ 终端快捷打开项目文件夹@编辑完后用命令已定义的命令rb重启终端使之生效===================
+# ✅ 终端快捷打开项目文件夹@编辑完后用命令已定义的命令rb重启终端使之生效
 check(){
   # 验证
   echo ""
@@ -279,6 +278,11 @@ check(){
 
   fvm use 3.24.5 --force
   flutter doctor -v
+}
+
+d(){
+  # 锁定项目
+  cd /Users/jobs/Documents/Github/flutter_tiyu_app
 }
 
 c(){
@@ -309,25 +313,87 @@ c(){
   check
 }
 
-apk(){
-  c
-
-  flutter clean
-  flutter pub get
-  flutter doctor -v  
-  flutter build apk --release
+# ✅ 为Flutter打包📦作准备
+buildCheck() {
+  read -r "?是否执行清理和依赖安装 (回车=执行，任意字符=跳过): " ans
+  if [[ -z "$ans" ]]; then
+    echo "🧹 flutter clean / pub get / doctor"
+    flutter clean || return $?
+    flutter pub get || return $?
+    flutter doctor -v || return $?
+  else
+    echo "⏩ 跳过 flutter clean / pub get / doctor"
+  fi
 }
 
-ipa(){
-  c
-
-  flutter clean
-  flutter pub get
-  flutter doctor -v 
-  flutter build ipa --release
+# ✅ Flutter 项目识别
+is_flutter_project() {
+  local dir="$1"
+  [[ -d "$dir/lib" && -f "$dir/pubspec.yaml" ]]
 }
 
-# ================================== 万能颜色格式转换器 ==================================
+# ✅ 获取 Flutter 项目目录（仅把“最后的路径”输出到 stdout）
+# 用法：
+#   local project_path; project_path="$(get_flutter_project_dir "$PWD")" || return 1
+#   cd "$project_path" || return 1
+get_flutter_project_dir() {
+  local start="${1:-$PWD}"
+  local project_path="$start"
+
+  while ! is_flutter_project "$project_path"; do
+    echo "❌ [$project_path] 不是合法的 Flutter 项目目录（缺少 lib/ 或 pubspec.yaml）" >&2
+    read -r "?👉 请输入 Flutter 项目路径: " input_path
+    # 空输入：继续循环
+    [[ -z "$input_path" ]] && continue
+
+    # 支持 ~ 展开；保持对空格路径友好
+    eval "project_path=\"$input_path\""
+    project_path="$(cd "$project_path" 2>/dev/null && pwd || echo "")"
+
+    if [[ -z "$project_path" ]]; then
+      echo "⚠️ 输入的路径无效，请重新输入" >&2
+      project_path="$start"
+    fi
+  done
+
+  # 只输出最终路径到 stdout
+  printf "%s\n" "$project_path"
+}
+
+# ================================== 构建 APK（复用目录函数） ==================================
+apk() {
+  # 可选：存在 buildCheck 就执行
+  if typeset -f buildCheck >/dev/null; then buildCheck || return $?; fi
+
+  local project_path
+  project_path="$(get_flutter_project_dir "$PWD")" || return 1
+  echo "✅ 已确认 Flutter 项目目录: $project_path"
+  cd "$project_path" || return 1
+
+  echo "🚀 开始构建 APK（release）..."
+  flutter build apk --release || return $?
+
+  echo "📂 打开输出目录: ./build/app/outputs/"
+  open "./build/app/outputs/"
+}
+
+# ✅ 📦打 iOS 包
+ipa() {
+  if typeset -f buildCheck >/dev/null; then buildCheck; fi
+
+  local project_path
+  project_path="$(get_flutter_project_dir "$PWD")" || return 1
+  echo "✅ 已确认 Flutter 项目目录: $project_path"
+  cd "$project_path" || return 1
+
+  echo "🚀 开始构建 iOS（release）..."
+  flutter build ipa --release || return $?
+
+  echo "📂 打开输出目录: ./build/ios/ipa/"
+  open "./build/ios/ipa/"
+}
+
+# ✅ 万能颜色格式转换器
 cor() {
   # ---------- 基础工具 ----------
   to_hex() { printf "%02X" "$1"; }
@@ -430,5 +496,3 @@ cor() {
 a(){
   open -a Simulator
 }
-
-
