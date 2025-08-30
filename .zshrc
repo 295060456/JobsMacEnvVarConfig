@@ -504,33 +504,6 @@ ensure_jdk17() {
 }
 
 # ✅ 打 Android 包📦
-apk1() {
-  local project_path
-  project_path="$(get_flutter_project_dir "$PWD")" || return 1
-  echo "[OK] 已确认 Flutter 项目目录: $project_path"
-  cd "$project_path" || return 1
-
-  # 现在才执行 buildCheck（保证在项目根）
-  if typeset -f buildCheck >/dev/null; then buildCheck || return $?; fi
-
-  ensure_fvm_and_flutter_version_before_build || return $?
-  ensure_jdk17 || return $?
-
-  # 子插件依赖更新
-  if [[ -f "plugins/htprotect/pubspec.yaml" ]]; then
-    echo "[INFO] 执行子插件依赖更新: plugins/htprotect"
-    (cd plugins/htprotect && "${flutter_cmd[@]}" pub get) || return $?
-  else
-    echo "[WARN] 未找到 plugins/htprotect/pubspec.yaml，跳过 pub get"
-  fi
-
-  echo "[INFO] 开始构建 APK（debug）..."
-  "${flutter_cmd[@]}" build apk --debug || return $?
-
-  echo "[INFO] 打开输出目录: ./build/app/outputs/"
-  open "./build/app/outputs/"
-}
-
 apk() {
   local project_path
   project_path="$(get_flutter_project_dir "$PWD")" || return 1
