@@ -547,6 +547,33 @@ ipa() {
   open "./build/ios/ipa/"
 }
 
+# ✅ 时间戳 ↔ 时间
+t() {
+  convert_timestamp() {
+    local ts="$1"
+    # 判断是否是毫秒
+    if [[ ${#ts} -gt 10 ]]; then
+      ts=$((ts / 1000))
+    fi
+    date -r "$ts" "+%Y-%m-%d %H:%M:%S"
+  }
+
+  while true; do
+    echo ""
+    read "?👉 请输入时间戳 (Ctrl+C 退出): " input
+    if [[ -z "$input" ]]; then
+      echo "❌ 未输入，跳过..."
+      continue
+    fi
+    result=$(convert_timestamp "$input" 2>/dev/null)
+    if [[ -z "$result" ]]; then
+      echo "❌ 无效时间戳: $input"
+    else
+      echo "✅ 转换结果: $result"
+    fi
+  done
+}
+
 # ✅ 万能颜色格式转换器
 cor() {
   # ---------- 基础工具 ----------
