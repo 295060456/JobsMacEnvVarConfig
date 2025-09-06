@@ -574,105 +574,6 @@ t() {
   done
 }
 
-# ✅ 万能颜色格式转换器
-cor() {
-  # ---------- 基础工具 ----------
-  to_hex() { printf "%02X" "$1"; }
-  alpha_float_to_255() { awk 'BEGIN{v='"$1"'; if(v<0)v=0;if(v>1)v=1; printf("%d",(v*255)+0.5)}'; }
-  alpha_255_to_float() { awk 'BEGIN{printf("%.2f",'"$1"'/255)}'; }
-  sanitize_input() { echo "$1" | tr -d '[:space:]' | tr -d '"' | tr -d "'"; }
-  upper_hex() { echo "$1" | tr '[:lower:]' '[:upper:]'; }
-
-  # ---------- 全局变量 ----------
-  local r g b a_float aa_hex user_input
-
-  # ---------- 解析输入 ----------
-  parse_input() {
-    local raw="$1" input
-    input=$(sanitize_input "$raw")
-
-    # 0xAARRGGBB
-    if [[ "$input" =~ ^0x[0-9a-fA-F]{8}$ ]]; then
-      local hex="${input:2}"; hex=$(upper_hex "$hex")
-      local aa=${hex:0:2} rr=${hex:2:2} gg=${hex:4:2} bb=${hex:6:2}
-      r=$((16#$rr)); g=$((16#$gg)); b=$((16#$bb))
-      aa_hex="$aa"
-      a_float=$(alpha_255_to_float $((16#$aa)))
-      return 0
-    fi
-
-    # #RRGGBB / #RRGGBBAA
-    if [[ "$input" =~ ^#[0-9a-fA-F]{6}([0-9a-fA-F]{2})?$ ]]; then
-      local hex="${input:1}"; hex=$(upper_hex "$hex")
-      local rr=${hex:0:2} gg=${hex:2:2} bb=${hex:4:2}
-      r=$((16#$rr)); g=$((16#$gg)); b=$((16#$bb))
-      if [[ ${#hex} -eq 8 ]]; then
-        aa_hex=${hex:6:2}
-        a_float=$(alpha_255_to_float $((16#$aa_hex)))
-      else
-        aa_hex="FF"
-        a_float="1.00"
-      fi
-      return 0
-    fi
-
-    # rgb(...) / rgba(...)
-    if [[ "$input" =~ ^rgba?\( ]]; then
-      local nums; nums=$(echo "$input" | sed -E 's/rgba?\(|\)//g')
-      IFS=',' read -r R G B A <<<"$nums"
-      r=${R%%.*}; g=${G%%.*}; b=${B%%.*}
-      [[ -z "$A" ]] && A="1"
-      a_float=$(awk 'BEGIN{printf("%.2f",'"$A"')}')
-      local A255; A255=$(alpha_float_to_255 "$a_float")
-      aa_hex=$(to_hex "$A255")
-      return 0
-    fi
-
-    return 1
-  }
-
-  # ---------- 格式化输出 ----------
-  format_and_print_all() {
-    local RR=$(to_hex "$r") GG=$(to_hex "$g") BB=$(to_hex "$b")
-    local AA="$aa_hex"
-    echo
-    echo "输入：$user_input"
-    echo "----------------------------------------"
-    echo "HEX（不透明）:  #${RR}${GG}${BB}"
-    echo "HEX（含透明） :  #${RR}${GG}${BB}${AA}"
-    echo "RGB           :  rgb(${r}, ${g}, ${b})"
-    echo "RGBA          :  rgba(${r}, ${g}, ${b}, $(printf '%.2f' "$a_float"))"
-    echo "0x 格式       :  0x${AA}${RR}${GG}${BB}"
-    echo
-  }
-
-  # ---------- 执行逻辑 ----------
-  if [[ $# -ge 1 ]]; then
-    # 有参数：逐个转换
-    for user_input in "$@"; do
-      if parse_input "$user_input"; then
-        format_and_print_all
-      else
-        echo "❌ 无法识别：$user_input"
-      fi
-    done
-  else
-    # 无参数：交互模式
-    while true; do
-      echo
-      printf "请输入颜色值（q 退出）： "
-      IFS= read -r user_input
-      [[ -z "$user_input" ]] && continue
-      [[ "$user_input" == [Qq] ]] && { echo "✅ 已退出"; break; }
-      if parse_input "$user_input"; then
-        format_and_print_all
-      else
-        echo "❌ 无法识别：$user_input"
-      fi
-    done
-  fi
-}
-
 # ✅ 打开xcode模拟器
 a(){
   open -a Simulator
@@ -680,3 +581,125 @@ a(){
 
 # ✅ 系统命令的二次封装
 alias n='touch'
+
+# ✅ 交互式颜色查看器：（带终端色块预览；真彩/256自动选择；安全放入 ~/.zshrc ；输入 cor 后按提示输入颜色）
+cor() {
+  emulate -L zsh
+  set +x +v
+  unsetopt XTRACE VERBOSE
+
+  # ---- 后端选择：auto | truecolor | 256（默认 auto，可 export COR_MODE=256 强制）----
+  : "${TERM:=xterm-256color}"
+  local COR_MODE="${COR_MODE:-auto}"
+
+  supports_truecolor() {
+    case "$COR_MODE" in
+      truecolor) return 0 ;;
+      256)       return 1 ;;
+    esac
+    [[ "${COLORTERM:-}" == *truecolor* || "${COLORTERM:-}" == *24bit* ]] && return 0
+    case "${TERM_PROGRAM:-}${TERM:-}" in
+      *iTerm*|*WezTerm*|*Ghostty*|*kitty*|*xterm-kitty*|*Windows_Terminal*) return 0 ;;
+    esac
+    [[ "${TERM:-}" == *-truecolor || "${TERM:-}" == *direct ]] && return 0
+    return 1
+  }
+
+  # ---------- 基础工具 ----------
+  to_hex() { printf "%02X" "$1"; }
+  alpha_f_to_255() { awk 'BEGIN{v='"$1"'; if(v<0)v=0;if(v>1)v=1; printf("%d",(v*255)+0.5)}'; }
+  alpha_255_to_f() { awk 'BEGIN{printf("%.2f",'"$1"'/255)}'; }
+  sanitize() { echo "$1" | tr -d '[:space:]' | tr -d '"' | tr -d "'"; }
+  upper_hex() { echo "$1" | tr '[:lower:]' '[:upper:]'; }
+
+  # ---------- 显示工具 ----------
+  rel_luma() { awk 'BEGIN{r='"$1"';g='"$2"';b='"$3"'; printf("%.0f",0.2126*r+0.7152*g+0.0722*b)}'; }
+  pick_fg() { local l; l=$(rel_luma "$1" "$2" "$3"); (( l > 186 )) && echo 30 || echo 97; }
+
+  rgb_to_ansi256() {
+    local r=$1 g=$2 b=$3
+    if (( r==g && g==b )); then
+      if   (( r < 8 ));   then echo 16
+      elif (( r > 248 )); then echo 231
+      else echo $((232 + ( (r-8) * 24 / 247 )))
+      fi; return
+    fi
+    local rc=$(( (r * 5) / 255 ))
+    local gc=$(( (g * 5) / 255 ))
+    local bc=$(( (b * 5) / 255 ))
+    echo $(( 16 + 36*rc + 6*gc + bc ))
+  }
+
+  show_block() {
+    local rr=$1 gg=$2 bb=$3 label=$4 fg; fg=$(pick_fg "$rr" "$gg" "$bb")
+    if supports_truecolor; then
+      printf "\e[48;2;%d;%d;%dm" "$rr" "$gg" "$bb"
+    else
+      local idx; idx=$(rgb_to_ansi256 "$rr" "$gg" "$bb")
+      printf "\e[48;5;%sm" "$idx"
+    fi
+    printf "\e[%sm" "$fg"
+    printf "  %-18s  " "$label"
+    printf "\e[0m"
+  }
+
+  # ---------- 解析器 ----------
+  local r g b a_float aa_hex
+  parse() {
+    local raw="$1" input rr gg bb aa
+    input=$(sanitize "$raw")
+
+    if [[ "$input" == 0x???????? ]]; then
+      local hex="${input:2}"; hex=$(upper_hex "$hex")
+      aa=${hex:0:2}; rr=${hex:2:2}; gg=${hex:4:2}; bb=${hex:6:2}
+      r=$((16#$rr)); g=$((16#$gg)); b=$((16#$bb))
+      aa_hex="$aa"; a_float=$(alpha_255_to_f $((16#$aa))); return 0
+    fi
+    if [[ "$input" == \#???????? ]]; then
+      local hex="${input:1}"; hex=$(upper_hex "$hex")
+      rr=${hex:0:2}; gg=${hex:2:2}; bb=${hex:4:2}; aa=${hex:6:2}
+      r=$((16#$rr)); g=$((16#$gg)); b=$((16#$bb))
+      aa_hex="$aa"; a_float=$(alpha_255_to_f $((16#$aa))); return 0
+    fi
+    if [[ "$input" == \#?????? ]]; then
+      local hex="${input:1}"; hex=$(upper_hex "$hex")
+      rr=${hex:0:2}; gg=${hex:2:2}; bb=${hex:4:2}
+      r=$((16#$rr)); g=$((16#$gg)); b=$((16#$bb))
+      aa_hex="FF"; a_float="1.00"; return 0
+    fi
+    if [[ "$input" == rgb\(* || "$input" == rgba\(* ]]; then
+      local nums; nums=$(echo "$input" | sed -E 's/^rgba?\(|\)$//g')
+      local R G B A; IFS=',' read -r R G B A <<<"$nums"
+      r=${R%%.*}; g=${G%%.*}; b=${B%%.*}
+      [[ -z "$A" ]] && A="1"
+      a_float=$(awk 'BEGIN{v='"$A"'; if(v<0)v=0;if(v>1)v=1; printf("%.2f",v)}')
+      aa_hex=$(to_hex "$(alpha_f_to_255 "$a_float")"); return 0
+    fi
+    return 1
+  }
+
+  # ---------- 交互 ----------
+  echo "🎨 颜色查看器：支持 #RRGGBB[AA] / 0xAARRGGBB / rgb / rgba"
+  echo "ℹ️  这里只输入颜色本体"
+  echo "🔗 在线取色器：https://photokit.com/colors/color-picker/?lang=zh"
+  while true; do
+    echo
+    builtin read -r "inp?请输入颜色值（q 退出）： " < /dev/tty
+    [[ "$inp" == [Qq] ]] && { echo "✅ 已退出"; break; }
+    [[ -z "$inp" ]] && continue
+
+    if parse "$inp"; then
+      local RR=$(to_hex "$r") GG=$(to_hex "$g") BB=$(to_hex "$b") AA="$aa_hex"
+      echo
+      echo "----------------------------------------"
+      echo "HEX（不透明）:  #${RR}${GG}${BB}"
+      echo "HEX（含透明） :  #${RR}${GG}${BB}${AA}"
+      echo "RGB           :  rgb(${r}, ${g}, ${b})"
+      echo "RGBA          :  rgba(${r}, ${g}, ${b}, $(printf '%.2f' "$a_float"))"
+      echo "0x 格式       :  0x${AA}${RR}${GG}${BB}"
+      show_block "$r" "$g" "$b" "原色 #${RR}${GG}${BB}"; echo
+    else
+      echo "❌ 无法识别：$inp"
+    fi
+  done
+}
