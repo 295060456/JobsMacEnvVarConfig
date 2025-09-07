@@ -248,21 +248,22 @@ check1() {
 
 clear
 
-# ================================== ✅ 重启终端 ==============================================
+# ✅ 重启终端
 rb() {
   exec "$SHELL"
 }
 
-# ✅ 快捷打开系统配置文件
+# ✅ 快捷打开系统配置文件 .bash_profile
 a(){
   open $HOME/.bash_profile
 }
 
+# ✅ 快捷打开系统配置文件 .zshrc
 b(){
   open $HOME/.zshrc
 }
 
-# ✅ 快捷打开软件
+# ✅ 打开xcode模拟器
 i(){
   open -a Simulator
 }
@@ -574,13 +575,52 @@ t() {
   done
 }
 
-# ✅ 打开xcode模拟器
-a(){
-  open -a Simulator
-}
-
 # ✅ 系统命令的二次封装
 alias n='touch'
+
+# ✅ 批量赋予执行权限：x
+# 用法：在终端输入 `x` → 按提示把目录拖进来或手动输入路径
+x() {
+  local _raw _dir _count=0
+
+  print -n "👉 请拖入目录或输入路径（q 退出）： "
+  # -r: 原样读取，不转义；支持拖拽路径
+  read -r _raw || { echo "❌ 读取输入失败"; return 1; }
+  [[ -z "$_raw" || "$_raw" == "q" || "$_raw" == "Q" ]] && { echo "🙆 已退出"; return 0; }
+
+  # 去掉首尾空白
+  _raw="${_raw#"${_raw%%[![:space:]]*}"}"
+  _raw="${_raw%"${_raw##*[![:space:]]}"}"
+
+  # 处理拖拽/引号/反斜杠转义：zsh 的 (Q) 可反转义，随后做 ~ 展开
+  _dir="${(Q)_raw}"
+  _dir="${_dir%/}"     # 去掉末尾斜杠
+  _dir=${~_dir}        # 允许 ~ 展开为家目录
+
+  if [[ ! -d "$_dir" ]]; then
+    echo "❌ 目录不存在：$_dir"
+    return 1
+  fi
+
+  echo "🔎 目标目录：$_dir"
+  echo "🚀 正在赋予可执行权限（.sh / .command）..."
+
+  # 用 -print0 + 读空字节，稳妥处理所有奇怪文件名
+  while IFS= read -r -d '' f; do
+    if chmod +x "$f"; then
+      ((_count++))
+      echo "✅ 已处理：$f"
+    else
+      echo "⚠️  失败：$f"
+    fi
+  done < <(find "$_dir" -type f \( -name '*.sh' -o -name '*.command' \) -print0)
+
+  if (( _count == 0 )); then
+    echo "ℹ️  未发现 .sh 或 .command 文件。"
+  else
+    echo "✔ 完成，共处理 ${_count} 个文件。"
+  fi
+}
 
 # ✅ 交互式颜色查看器：（带终端色块预览；真彩/256自动选择；安全放入 ~/.zshrc ；输入 cor 后按提示输入颜色）
 cor() {
