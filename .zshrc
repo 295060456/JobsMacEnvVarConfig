@@ -1,3 +1,7 @@
+source "$HOME/.bash_profile"
+source "$HOME/.bashrc"
+source "$HOME/.zshrc"
+source "$HOME/.profile"
 # -------------------- Oh My Zsh 基本设置 --------------------
 export ZSH="$HOME/.oh-my-zsh"
 ZSH_THEME="robbyrussell"
@@ -52,6 +56,7 @@ update() {
   try_run "dart" "dart pub global activate fvm"
   try_run "gem" "gem update && gem clean"
   try_run "pod" "pod repo update --verbose"
+  try_run "rbenv" "brew upgrade rbenv ruby-build"
 }
 
 # -------------------- flutter() 重载（优先 FVM） --------------------
